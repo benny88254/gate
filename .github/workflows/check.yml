@@ -8,6 +8,8 @@ name: VPN Gate Node Check
 #     - cron: '*/30 * * * *'
 
 on:
+  schedule:
+    - cron: '17 */4 * * *'
   workflow_dispatch:
     inputs:
       max_nodes:
@@ -64,12 +66,24 @@ jobs:
 
       - name: Run pipeline
         env:
+          CHECK_TOKEN: ${{ secrets.CHECK_TOKEN }}
           CHECK_WORKER: "https://${{ secrets.DOMAIN }}/check?sstp=vpn:vpn@"
           CHECK_CONCURRENCY: ${{ github.event.inputs.concurrency || '32' }}
           CHECK_TIMEOUT: ${{ github.event.inputs.timeout || '25' }}
           MAX_CHECK_NODES: ${{ github.event.inputs.max_nodes || '0' }}
           MIN_SUCCESS_RATIO: '0'
-        run: python vpngate.py
+        run: |
+          python - <<'PATCH'
+          from pathlib import Path
+          p = Path('vpngate.py')
+          s = p.read_text()
+          old = 'response = session.get(url, timeout=timeout)'
+          new = 'response = session.get(url, timeout=timeout, headers={"Authorization": "Bearer " + os.environ["CHECK_TOKEN"]})'
+          if old not in s:
+              raise SystemExit('Worker request location changed; review required')
+          p.write_text(s.replace(old, new, 1))
+          PATCH
+          python vpngate.py
 
       - name: Ensure GitHub Pages is enabled
         env:
